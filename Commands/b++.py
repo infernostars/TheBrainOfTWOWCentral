@@ -1,8 +1,6 @@
 from Config._functions import strip_alpha, find_all, is_whole, strip_front
 
-from Config._bpp_parsing import *
-
-from Config._bpp_functions import ProgramDefinedException
+from Config._bxe_parsing import run_bxe_program
 
 from Config._db import Database
 
@@ -33,7 +31,7 @@ def HELP(PREFIX):
 	}
 
 PERMS = 1 # Member
-ALIASES = ["TAG", "B++NEW", "TAGNEW", "NEWB++", "NEWTAG", "BPP"]
+ALIASES = ["TAG", "B++NEW", "TAGNEW", "NEWB++", "NEWTAG", "BPP", "BXE"]
 REQ = []
 
 LATEST_BUTTONS = {}
@@ -392,15 +390,13 @@ async def MAIN(message, args, level, perms, SERVER):
 
 	async def evaluate_and_send(program, program_args, author, runner, message, is_button=False):
 		try:
-			program_output, buttons = run_bpp_program(program, program_args, author, runner, message.channel)
+			program_output, buttons = run_bxe_program(program, program_args, author, runner, message.channel)
 		except Exception as e:
 			await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(e).__name__}', description=f'```{e}```'),allowed_mentions=discord.AllowedMentions.none())
 			#await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(e).__name__}', description=f'```{e}\n\n{traceback.format_tb(e.__traceback__)}```'.replace("<@", "<\\@")))
 			return
 		if isinstance(program_output, Exception):
-			color = 0xFF0000
-			if isinstance(program_output, ProgramDefinedException): color = None
-			await message.channel.send(embed=discord.Embed(color=color, title=f'{type(program_output).__name__}', description=f'```{program_output}```'),allowed_mentions=discord.AllowedMentions.none())
+			await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(program_output).__name__}', description=f'```{program_output}```'),allowed_mentions=discord.AllowedMentions.none())
 			return
 		
 		program_output = program_output
