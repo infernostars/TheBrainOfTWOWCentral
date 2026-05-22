@@ -21,7 +21,7 @@ def HELP(PREFIX):
 		"CHANNEL": 0,
 		"USAGE": f"""Use `{PREFIX}bxe run [code]` to run raw code with bxengine.
 		Use `{PREFIX}bxe [program] (args)` to run an existing saved B++ program with bxengine.
-		This command only executes programs; program management remains under `{PREFIX}b++`.""".replace("\n", "").replace("\t", ""),
+		This command only executes programs; program management remains under `{PREFIX}tag`.""".replace("\n", "").replace("\t", ""),
 		"CATEGORY": "Fun"
 	}
 
