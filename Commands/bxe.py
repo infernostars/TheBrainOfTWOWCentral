@@ -142,8 +142,31 @@ class BrainGlobalExtension(BxeStatefulExtension):
 			case _:
 				raise BxeRuntimeSyntaxException("GLOBAL needs a function type parameter")
 
-	def unsaved_changes(self):
-		return sorted(list(self._changed))
+	def persist(self):
+		for variable in self._changed:
+			value = self.global_variables[variable]
+			value_type = _var_type(value)
+			value_string = _encode_global_value(value)
+
+			v_list = self._db.get_entries(
+				"b++2variables", columns=["name", "value", "type", "owner"], conditions={"name": variable}
+			)
+
+			if len(v_list) == 0:
+				self._db.add_entry("b++2variables", [variable, value_string, value_type, self._author])
+				continue
+
+			v_owner = str(v_list[0][3])
+			if v_owner != self._author:
+				raise PermissionError(
+					f"Only the author of the {variable} variable can edit its value ({v_owner})"
+				)
+
+			self._db.edit_entry(
+				"b++2variables",
+				entry={"value": value_string, "type": value_type},
+				conditions={"name": variable}
+			)
 
 
 def _global_extension_factory(author):
@@ -195,15 +218,14 @@ def _execute_bxe(program, program_args, author, runner, channel):
 		elif isinstance(ext, BrainDiscordExtension):
 			discord_ext = ext
 
-	unsaved_global_writes = []
 	if global_ext is not None:
-		unsaved_global_writes = global_ext.unsaved_changes()
+		global_ext.persist()
 
 	buttons = []
 	if discord_ext is not None:
 		buttons = discord_ext.buttons
 
-	return result.output, buttons, unsaved_global_writes
+	return result.output, buttons
 
 
 async def MAIN(message, args, level, perms, SERVER):
@@ -265,7 +287,7 @@ async def MAIN(message, args, level, perms, SERVER):
 
 	async def evaluate_and_send(program, program_args, author, runner, source_message, is_button=False):
 		try:
-			program_output, buttons, unsaved_global_writes = _execute_bxe(program, program_args, author, runner, source_message.channel)
+			program_output, buttons = _execute_bxe(program, program_args, author, runner, source_message.channel)
 		except Exception as e:
 			await source_message.channel.send(
 				embed=discord.Embed(color=0xFF0000, title=f"{type(e).__name__}", description=f"```{e}```"),
@@ -275,19 +297,6 @@ async def MAIN(message, args, level, perms, SERVER):
 
 		if is_button:
 			program_output = program_output.rstrip() + f"\n-# Button pressed by {runner.mention}"
-
-		warning_prefix = ""
-		if len(unsaved_global_writes) != 0:
-			shown = ", ".join([f"`{name}`" for name in unsaved_global_writes[:8]])
-			extra = ""
-			if len(unsaved_global_writes) > 8:
-				extra = f" and {len(unsaved_global_writes) - 8} more"
-			warning_prefix = (
-				f"⚠️ GLOBAL variable changes are currently not persisted. "
-				f"Changed this run: {shown}{extra}.\n\n"
-			)
-
-		program_output = warning_prefix + program_output
 
 		async def button_callback(program, interaction):
 			try:
