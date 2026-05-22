@@ -276,6 +276,19 @@ async def MAIN(message, args, level, perms, SERVER):
 		if is_button:
 			program_output = program_output.rstrip() + f"\n-# Button pressed by {runner.mention}"
 
+		warning_prefix = ""
+		if len(unsaved_global_writes) != 0:
+			shown = ", ".join([f"`{name}`" for name in unsaved_global_writes[:8]])
+			extra = ""
+			if len(unsaved_global_writes) > 8:
+				extra = f" and {len(unsaved_global_writes) - 8} more"
+			warning_prefix = (
+				f"⚠️ GLOBAL variable changes are currently not persisted. "
+				f"Changed this run: {shown}{extra}.\n\n"
+			)
+
+		program_output = warning_prefix + program_output
+
 		async def button_callback(program, interaction):
 			try:
 				custom_id = interaction.data["custom_id"]
@@ -346,15 +359,5 @@ async def MAIN(message, args, level, perms, SERVER):
 
 		if len(buttons) != 0:
 			LATEST_BUTTONS[hash(program)] = cmd_output.id
-
-		if len(unsaved_global_writes) != 0:
-			shown = ", ".join([f"`{name}`" for name in unsaved_global_writes[:8]])
-			extra = ""
-			if len(unsaved_global_writes) > 8:
-				extra = f" and {len(unsaved_global_writes) - 8} more"
-			await source_message.channel.send(
-				f"⚠️ GLOBAL variable changes are currently not persisted. Changed this run: {shown}{extra}.",
-				allowed_mentions=discord.AllowedMentions.none()
-			)
 
 	await evaluate_and_send(program, program_args, author, runner, message)
