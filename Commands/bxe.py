@@ -8,6 +8,7 @@ from Config._bpp_parsing import undo_str_array, str_array
 
 from bxengine.tokenizer.tokenize import Tokenizer, TokenizationResult
 from bxengine.parsing.parser import Parser, ParsingResult
+from bxengine.parsing.nodes import Nodes
 from bxengine.runtime.executor import Executor, ExecutorResult
 from bxengine.runtime.extensions.builtin import BuiltinExtension
 from bxengine.runtime.extensions.BxeExtension import BxeStatefulExtension, bpp_function, BxeRuntimeSyntaxException
@@ -84,6 +85,37 @@ class BrainGlobalExtension(BxeStatefulExtension):
 		self.global_variables = {}
 		self._changed = set()
 
+	def post_parse_hook(self, nodes):
+		names = self._collect_trivial_global_var_reads(nodes)
+		if len(names) == 0:
+			return
+
+		v_list = self._db.get_entries("b++2variables", columns=["name", "value", "type", "owner"])
+		for (v_name, v_value, v_type, _v_owner) in v_list:
+			if v_name not in names:
+				continue
+			self.global_variables[v_name] = _decode_global_value(v_value, v_type)
+
+	@staticmethod
+	def _collect_trivial_global_var_reads(nodes):
+		names = set()
+		stack = list(nodes)
+
+		while len(stack) != 0:
+			node = stack.pop()
+			if isinstance(node, Nodes.Function):
+				if (
+					node.name.upper() == "GLOBAL"
+					and len(node.arguments) == 2
+					and isinstance(node.arguments[0], Nodes.StringNode)
+					and isinstance(node.arguments[1], Nodes.StringNode)
+					and node.arguments[0].value.lower() == "var"
+				):
+					names.add(node.arguments[1].value)
+				stack.extend(node.arguments)
+
+		return names
+
 	@bpp_function("GLOBAL")
 	def global_fn(self, func_type, variable, value=None):
 		match str(func_type).lower():
@@ -110,31 +142,8 @@ class BrainGlobalExtension(BxeStatefulExtension):
 			case _:
 				raise BxeRuntimeSyntaxException("GLOBAL needs a function type parameter")
 
-	def persist(self):
-		for variable in self._changed:
-			value = self.global_variables[variable]
-			value_type = _var_type(value)
-			value_string = _encode_global_value(value)
-
-			v_list = self._db.get_entries(
-				"b++2variables", columns=["name", "value", "type", "owner"], conditions={"name": variable}
-			)
-
-			if len(v_list) == 0:
-				self._db.add_entry("b++2variables", [variable, value_string, value_type, self._author])
-				continue
-
-			v_owner = str(v_list[0][3])
-			if v_owner != self._author:
-				raise PermissionError(
-					f"Only the author of the {variable} variable can edit its value ({v_owner})"
-				)
-
-			self._db.edit_entry(
-				"b++2variables",
-				entry={"value": value_string, "type": value_type},
-				conditions={"name": variable}
-			)
+	def unsaved_changes(self):
+		return sorted(list(self._changed))
 
 
 def _global_extension_factory(author):
@@ -186,14 +195,15 @@ def _execute_bxe(program, program_args, author, runner, channel):
 		elif isinstance(ext, BrainDiscordExtension):
 			discord_ext = ext
 
+	unsaved_global_writes = []
 	if global_ext is not None:
-		global_ext.persist()
+		unsaved_global_writes = global_ext.unsaved_changes()
 
 	buttons = []
 	if discord_ext is not None:
 		buttons = discord_ext.buttons
 
-	return result.output, buttons
+	return result.output, buttons, unsaved_global_writes
 
 
 async def MAIN(message, args, level, perms, SERVER):
@@ -255,7 +265,7 @@ async def MAIN(message, args, level, perms, SERVER):
 
 	async def evaluate_and_send(program, program_args, author, runner, source_message, is_button=False):
 		try:
-			program_output, buttons = _execute_bxe(program, program_args, author, runner, source_message.channel)
+			program_output, buttons, unsaved_global_writes = _execute_bxe(program, program_args, author, runner, source_message.channel)
 		except Exception as e:
 			await source_message.channel.send(
 				embed=discord.Embed(color=0xFF0000, title=f"{type(e).__name__}", description=f"```{e}```"),
@@ -336,5 +346,15 @@ async def MAIN(message, args, level, perms, SERVER):
 
 		if len(buttons) != 0:
 			LATEST_BUTTONS[hash(program)] = cmd_output.id
+
+		if len(unsaved_global_writes) != 0:
+			shown = ", ".join([f"`{name}`" for name in unsaved_global_writes[:8]])
+			extra = ""
+			if len(unsaved_global_writes) > 8:
+				extra = f" and {len(unsaved_global_writes) - 8} more"
+			await source_message.channel.send(
+				f"⚠️ GLOBAL variable changes are currently not persisted. Changed this run: {shown}{extra}.",
+				allowed_mentions=discord.AllowedMentions.none()
+			)
 
 	await evaluate_and_send(program, program_args, author, runner, message)
