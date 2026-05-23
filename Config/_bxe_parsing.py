@@ -1,3 +1,6 @@
+import re
+from typing import Any
+
 try:
 	from Config._db import Database
 	from Config._bpp_parsing import undo_str_array, str_array
@@ -101,9 +104,14 @@ class BrainGlobalExtension(BxeStatefulExtension):
 		return names
 
 	@bpp_function("GLOBAL")
-	def global_fn(self, func_type, variable, value=None):
+	def global_fn(self, func_type: str, variable: str, value: Any = None):
+		if re.search(r"[^A-Za-z_0-9]", variable) or re.search(r"[0-9]", variable[0]):
+			raise NameError(
+			f"Global variable name must be only letters, underscores and numbers, and cannot start with a number")
 		match str(func_type).lower():
 			case "define":
+				if len(str(value)) > 100_000:
+					raise ValueError("Global variables are capped at 100,000 characters or fewer")
 				self.global_variables[variable] = value
 				self._changed.add(variable)
 				return ""
