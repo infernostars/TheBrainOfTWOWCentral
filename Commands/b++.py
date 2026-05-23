@@ -334,10 +334,7 @@ async def MAIN(message, args, level, perms, SERVER):
 
 
 	if args[1].lower() == "run":
-		if level > 2:
-			program = " ".join(args[2:])
-
-		elif len(message.attachments) != 0:
+		if len(message.attachments) != 0:
 			try:
 				if message.attachments[0].size >= 60000:
 					await message.channel.send("Your program must be under **60KB**.")
@@ -348,10 +345,15 @@ async def MAIN(message, args, level, perms, SERVER):
 			except Exception:
 				await message.channel.send("Include a valid program to run!")
 				return
-			
+
+			program_args = args[2:]
 			program = open(f"Config/{message.id}.txt", "r", encoding="utf-8").read()
 			os.remove(f"Config/{message.id}.txt")
-		
+
+		elif level > 2:
+			program_args = []
+			program = " ".join(args[2:])
+
 		else:
 			await message.channel.send("Include a valid program to run!")
 			return
@@ -360,8 +362,6 @@ async def MAIN(message, args, level, perms, SERVER):
 			program = program[1:-1]
 		
 		program = program.replace("{}", "\v")
-
-		program_args = []
 
 		author = message.author.id
 
