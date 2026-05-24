@@ -3,6 +3,7 @@ bxengine==0.3.2
 numpy==1.22.0
 Pillow==10.3.0
 requests==2.31.0
+psycopg2==2.8.6
 aiohttp==3.9.0
 cexprtk==0.4.0
 func_timeout==4.3.5
