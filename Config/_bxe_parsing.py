@@ -178,14 +178,18 @@ def _discord_extension_factory(runner, channel):
 
 def run_bxe_program(code, p_args, author, runner, channel):
 	buttons = []
+	warnings = []
 	try:
 		tok = Tokenizer.tokenize(code)
 		if isinstance(tok, TokenizationResult.Error):
-			return [SyntaxError(f"{tok.message}\n\n{tok.range.debug_info()}"), buttons]
+			return [SyntaxError(f"{tok.message}\n\n{tok.range.debug_info()}"), buttons, warnings]
+		warnings.extend(tok.warnings)
 
 		par = Parser.parse(code, tok.tokens)
 		if isinstance(par, ParsingResult.Error):
-			return [SyntaxError(f"{par.message}\n\n{par.range.debug_info()}"), buttons]
+			warnings.extend(par.warnings)
+			return [SyntaxError(f"{par.message}\n\n{par.range.debug_info()}"), buttons, warnings]
+		warnings.extend(par.warnings)
 
 		exe = Executor(
 			extensions=[BuiltinExtension()],
@@ -205,7 +209,7 @@ def run_bxe_program(code, p_args, author, runner, channel):
 					exc = type(exc)(f"{exc}\n\n{span.debug_info()}")
 				except Exception:
 					pass
-			return [exc, buttons]
+			return [exc, buttons, warnings]
 
 		for ext in result.stateful_extensions:
 			if isinstance(ext, BrainGlobalExtension):
@@ -213,6 +217,6 @@ def run_bxe_program(code, p_args, author, runner, channel):
 			elif isinstance(ext, BrainDiscordExtension):
 				buttons = ext.buttons
 
-		return [result.output, buttons]
+		return [result.output, buttons, warnings]
 	except Exception as e:
-		return [e, buttons]
+		return [e, buttons, warnings]
