@@ -23,7 +23,8 @@ def HELP(PREFIX):
 		displays information and the source code of a specific program. `tc/b++ create [program] [code]` can be used 
 		to save code into a specific program name, which can be edited by its creator with `tc/b++ edit [program] 
 		[newcode]` or deleted with `tc/b++ delete [program]`. You can check your existing programs with `tc/b++ tags`.
-		Finally, `tc/b++ [program] (args)` allows you to run any saved program.^n^n
+		Finally, `tc/b++ [program] (args)` allows you to run any saved program. Use debug mode with
+		`tc/b++ debug run [code]` or `tc/b++ debug [program] (args)` to print syntax warnings.^n^n
 		The full documentation for all B++ program functionality is displayed in this document:^n
 		https://docs.google.com/document/d/1pU2ezYE505sAPEmnSMNx9yfzD7FT4_KmICOkEUpMSA8/edit?usp=sharing
 		""".replace("\n", "").replace("\t", "").replace("^n", "\n"),
@@ -35,6 +36,16 @@ ALIASES = ["TAG", "B++NEW", "TAGNEW", "NEWB++", "NEWTAG", "BPP", "BXE"]
 REQ = []
 
 LATEST_BUTTONS = {}
+
+def format_debug_warnings(warnings):
+	if len(warnings) == 0:
+		return "Debug mode: no syntax warnings."
+
+	lines = [f"Debug mode: {len(warnings)} warning{'s' if len(warnings) != 1 else ''} detected."]
+	for i, warning in enumerate(warnings, 1):
+		lines.append(f"\n{i}. {warning.message}\n{warning.range.debug_info()}")
+	
+	return "\n".join(lines)
 
 async def MAIN(message, args, level, perms, SERVER):
 
@@ -217,7 +228,7 @@ async def MAIN(message, args, level, perms, SERVER):
 			"Tag name can only contain letters, numbers and underscores, and cannot start with a number!")
 			return
 		
-		if tag_name in ["create", "edit", "delete", "info", "run", "help", "tags"]:
+		if tag_name in ["create", "edit", "delete", "info", "run", "help", "tags", "debug"]:
 			await message.channel.send("The tag name must not be a reserved keyword!")
 			return
 
@@ -333,7 +344,68 @@ async def MAIN(message, args, level, perms, SERVER):
 		return
 
 
-	if args[1].lower() == "run":
+	debug_mode = False
+	invocation_name = args[1]
+
+	if args[1].lower() == "debug":
+		debug_mode = True
+		if level == 2:
+			await message.channel.send("Include `run` or a tag name for debug mode!")
+			return
+
+		if args[2].lower() == "run":
+			invocation_name = "run"
+			if len(message.attachments) != 0:
+				try:
+					if message.attachments[0].size >= 60000:
+						await message.channel.send("Your program must be under **60KB**.")
+						return
+
+					await message.attachments[0].save(f"Config/{message.id}.txt")
+
+				except Exception:
+					await message.channel.send("Include a valid program to run!")
+					return
+
+				program_args = args[3:]
+				program = open(f"Config/{message.id}.txt", "r", encoding="utf-8").read()
+				os.remove(f"Config/{message.id}.txt")
+
+			elif level > 3:
+				program_args = []
+				program = " ".join(args[3:])
+
+			else:
+				await message.channel.send("Include a valid program to run!")
+				return
+
+			while program.startswith("`") and program.endswith("`"):
+				program = program[1:-1]
+			
+			program = program.replace("{}", "\v")
+			author = message.author.id
+			runner = message.author
+		else:
+			tag_name = args[2]
+			invocation_name = tag_name
+			tag_list = db.get_entries("b++2programs", columns=["name", "program", "author", "uses"])
+
+			if tag_name not in [x[0] for x in tag_list]:
+				await message.channel.send(f"There's no program under the name `{tag_name}`!")
+				return
+			
+			tag_info = [x for x in tag_list if x[0] == tag_name][0]
+			program = tag_info[1]
+
+			uses = tag_info[3] + 1
+			db.edit_entry("b++2programs", entry={"uses": uses, "lastused": time.time()}, conditions={"name": tag_name})
+
+			program_args = args[3:]
+			author = tag_info[2]
+			runner = message.author
+
+	elif args[1].lower() == "run":
+		invocation_name = "run"
 		if len(message.attachments) != 0:
 			try:
 				if message.attachments[0].size >= 60000:
@@ -362,13 +434,12 @@ async def MAIN(message, args, level, perms, SERVER):
 			program = program[1:-1]
 		
 		program = program.replace("{}", "\v")
-
 		author = message.author.id
-
 		runner = message.author
 	
 	else:
 		tag_name = args[1]
+		invocation_name = tag_name
 
 		tag_list = db.get_entries("b++2programs", columns=["name", "program", "author", "uses"])
 
@@ -383,18 +454,27 @@ async def MAIN(message, args, level, perms, SERVER):
 		db.edit_entry("b++2programs", entry={"uses": uses, "lastused": time.time()}, conditions={"name": tag_name})
 
 		program_args = args[2:]
-
 		author = tag_info[2]
-
 		runner = message.author
 
-	async def evaluate_and_send(program, program_args, author, runner, message, is_button=False):
+	async def evaluate_and_send(program, program_args, author, runner, message, invocation_name, debug_mode=False, is_button=False):
 		try:
-			program_output, buttons = run_bxe_program(program, program_args, author, runner, message.channel)
+			program_output, buttons, warnings = run_bxe_program(program, program_args, author, runner, message.channel)
 		except Exception as e:
 			await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(e).__name__}', description=f'```{e}```'),allowed_mentions=discord.AllowedMentions.none())
 			#await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(e).__name__}', description=f'```{e}\n\n{traceback.format_tb(e.__traceback__)}```'.replace("<@", "<\\@")))
 			return
+
+		if debug_mode:
+			warning_output = format_debug_warnings(warnings)
+			if len(warning_output) <= 2000:
+				await message.channel.send(warning_output, allowed_mentions=discord.AllowedMentions.none())
+			else:
+				open(f"Config/{message.id}_warnings.txt", "w", encoding="utf-8").write(warning_output)
+				warnfile = discord.File(f"Config/{message.id}_warnings.txt")
+				os.remove(f"Config/{message.id}_warnings.txt")
+				await message.channel.send("Debug warning output is too long; sending as a file.", file=warnfile, allowed_mentions=discord.AllowedMentions.none())
+
 		if isinstance(program_output, Exception):
 			await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(program_output).__name__}', description=f'```{program_output}```'),allowed_mentions=discord.AllowedMentions.none())
 			return
@@ -411,9 +491,6 @@ async def MAIN(message, args, level, perms, SERVER):
 				tag_list = db.get_entries("b++2programs", columns=["name", "program", "author", "uses"])
 		
 				if tag_name in [x[0] for x in tag_list]:
-					#await interaction.response.send_message(f"There's no program under the name `{tag_name}`!",allowed_mentions=discord.AllowedMentions.none())
-					#return
-				
 					tag_info = [x for x in tag_list if x[0] == tag_name][0]
 					program = tag_info[1]
 			
@@ -425,7 +502,7 @@ async def MAIN(message, args, level, perms, SERVER):
 					author = interaction.user.id
 					
 				if hash(program) not in LATEST_BUTTONS.keys() or LATEST_BUTTONS[hash(program)] <= interaction.message.id:
-					await evaluate_and_send(program, custom_id.split(" ")[2:], author, interaction.user, interaction.message, True)
+					await evaluate_and_send(program, custom_id.split(" ")[2:], author, interaction.user, interaction.message, invocation_name, False, True)
 				
 				await interaction.response.edit_message(view=None)
 			except:
@@ -435,7 +512,7 @@ async def MAIN(message, args, level, perms, SERVER):
 		out_view = View()
 		for button_value in buttons:
 			if len(button_value) == 1: button_value += ["​"]
-			button = Button(label = button_value[1] if button_value[1] != "" else "​", style = discord.ButtonStyle.secondary, custom_id = f"{time.time()} {args[1]} {button_value[0]}", disabled=button_value[0]=="null")
+			button = Button(label = button_value[1] if button_value[1] != "" else "​", style = discord.ButtonStyle.secondary, custom_id = f"{time.time()} {invocation_name} {button_value[0]}", disabled=button_value[0]=="null")
 			button.callback = partial(button_callback, program)
 			out_view.add_item(button)
 	
@@ -454,6 +531,6 @@ async def MAIN(message, args, level, perms, SERVER):
 		if len(buttons) != 0:
 			LATEST_BUTTONS[hash(program)] = cmd_output.id
 	
-	await evaluate_and_send(program, program_args, author, runner, message)
+	await evaluate_and_send(program, program_args, author, runner, message, invocation_name, debug_mode)
 		
 	
