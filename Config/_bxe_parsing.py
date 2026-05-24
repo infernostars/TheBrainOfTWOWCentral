@@ -18,6 +18,7 @@ from bxengine.runtime.extensions.BxeExtension import (
 	bpp_function,
 	BxeRuntimeSyntaxException,
 )
+from bxengine.exceptions import ProgramDefinedException
 
 
 def _var_type(value):
@@ -199,7 +200,7 @@ def run_bxe_program(code, p_args, author, runner, channel):
 		if isinstance(result, ExecutorResult.Error):
 			exc = result.exception
 			span = getattr(exc, "span", None)
-			if span is not None:
+			if span is not None and not isinstance(exc, ProgramDefinedException):
 				try:
 					exc = type(exc)(f"{exc}\n\n{span.debug_info()}")
 				except Exception:
