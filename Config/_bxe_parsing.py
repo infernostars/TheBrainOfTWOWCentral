@@ -675,7 +675,7 @@ class BrainUserExtension(BxeStatefulExtension):
 				if variable in self.user_variables.keys():
 					return self.user_variables[db_name]
 
-				row = self._cache.get(db_name)
+				row = self._cache.get(variable, self._runner_id)
 				if row is not None:
 					(_, v_value, v_type, _v_owner, _dirty) = row
 				else:
