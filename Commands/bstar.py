@@ -82,6 +82,10 @@ async def MAIN(message, args, level, perms, SERVER, LOGIN):
 
 	# """Creates a B* tag with your code"""
 	if subcommand == "create":
+
+		await message.channel.send("B* has been deprecated, and you can no longer create new programs with it.")
+		return
+		"""
 		if level == 2:
 			await message.channel.send("Include the name of your new program!")
 			return
@@ -135,7 +139,7 @@ async def MAIN(message, args, level, perms, SERVER, LOGIN):
 		db.add_entry("bsprograms", [tag_name, program, message.author.id, 0, int(time.time()), 0, 0, bs_version])
 		await message.channel.send(f"Successfully created program `{tag_name}`!")
 		return
-
+		"""
 	# except:
 	#     await message.channel.send("Tag creation failed")
 
