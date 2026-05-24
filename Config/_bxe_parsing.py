@@ -233,11 +233,11 @@ def _schedule_global_cache_flush():
 
 
 
-def _global_cache_path():
-	return os.environ.get(_GLOBAL_CACHE_ENV, _DEFAULT_GLOBAL_CACHE_PATH)
+def _user_cache_path():
+	return os.environ.get(_USER_CACHE_ENV, _DEFAULT_USER_CACHE_PATH)
 
 def _global_cache_lock_path():
-	return f"{_global_cache_path()}.lock"
+	return f"{_user_cache_path()}.lock"
 	
 @contextmanager
 def _bxe_user_execution_lock():
