@@ -1,5 +1,16 @@
 import re
+import os
+import sqlite3
+import tempfile
+import threading
+import time
+from contextlib import contextmanager
 from typing import Any
+
+try:
+	import fcntl
+except ImportError:
+	fcntl = None
 
 try:
 	from Config._db import Database
@@ -21,6 +32,12 @@ from bxengine.runtime.extensions.BxeExtension import (
 from bxengine.exceptions import ProgramDefinedException
 
 
+_GLOBAL_VARIABLE_TABLE = "b++2variables"
+_GLOBAL_VARIABLE_COLUMNS = ["name", "value", "type", "owner"]
+_GLOBAL_CACHE_ENV = "BRAIN_BXE_GLOBAL_CACHE_PATH"
+_DEFAULT_GLOBAL_CACHE_PATH = os.path.join(tempfile.gettempdir(), "thebrain_bxe_global_cache.sqlite3")
+
+
 def _var_type(value):
 	type_list = [int, float, str, list]
 	for t in type_list:
@@ -40,6 +57,177 @@ def _encode_global_value(value):
 	if type(value) == list:
 		return str_array(value)
 	return str(value)
+
+
+def _global_cache_path():
+	return os.environ.get(_GLOBAL_CACHE_ENV, _DEFAULT_GLOBAL_CACHE_PATH)
+
+
+def _global_cache_lock_path():
+	return f"{_global_cache_path()}.lock"
+
+
+@contextmanager
+def _bxe_global_execution_lock():
+	lock_path = _global_cache_lock_path()
+	lock_dir = os.path.dirname(lock_path)
+	if lock_dir:
+		os.makedirs(lock_dir, exist_ok=True)
+
+	with open(lock_path, "a") as lock_file:
+		if fcntl is not None:
+			fcntl.flock(lock_file, fcntl.LOCK_EX)
+
+		try:
+			yield
+		finally:
+			if fcntl is not None:
+				fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+class _BrainGlobalCache:
+	def __init__(self, path=None):
+		self._path = path or _global_cache_path()
+		self._ensure_cache()
+
+	def _connect(self):
+		cache_dir = os.path.dirname(self._path)
+		if cache_dir:
+			os.makedirs(cache_dir, exist_ok=True)
+		return sqlite3.connect(self._path, timeout=30)
+
+	def _ensure_cache(self):
+		with self._connect() as cache:
+			cache.execute(
+				"""
+				CREATE TABLE IF NOT EXISTS variables (
+					name TEXT PRIMARY KEY,
+					value TEXT NOT NULL,
+					type INTEGER NOT NULL,
+					owner TEXT NOT NULL,
+					dirty INTEGER NOT NULL DEFAULT 0,
+					updated_at REAL NOT NULL
+				)
+				"""
+			)
+
+	def get(self, name):
+		with self._connect() as cache:
+			row = cache.execute(
+				"SELECT name, value, type, owner, dirty FROM variables WHERE name = ?",
+				(name,)
+			).fetchone()
+		return row
+
+	def get_many(self, names):
+		if len(names) == 0:
+			return {}
+
+		placeholders = ", ".join(["?"] * len(names))
+		with self._connect() as cache:
+			rows = cache.execute(
+				f"SELECT name, value, type, owner, dirty FROM variables WHERE name IN ({placeholders})",
+				list(names)
+			).fetchall()
+		return {row[0]: row for row in rows}
+
+	def dirty_entries(self):
+		with self._connect() as cache:
+			return cache.execute(
+				"SELECT name, value, type, owner, dirty FROM variables WHERE dirty = 1"
+			).fetchall()
+
+	def upsert(self, name, value, value_type, owner, dirty):
+		with self._connect() as cache:
+			cache.execute(
+				"""
+				INSERT INTO variables (name, value, type, owner, dirty, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?)
+				ON CONFLICT(name) DO UPDATE SET
+					value = excluded.value,
+					type = excluded.type,
+					owner = excluded.owner,
+					dirty = excluded.dirty,
+					updated_at = excluded.updated_at
+				""",
+				(name, str(value), int(value_type), str(owner), int(dirty), time.time())
+			)
+
+	def mark_clean(self, name):
+		with self._connect() as cache:
+			cache.execute(
+				"UPDATE variables SET dirty = 0, updated_at = ? WHERE name = ?",
+				(time.time(), name)
+			)
+
+	def refresh_from_database_rows(self, rows):
+		with self._connect() as cache:
+			for name, value, value_type, owner in rows:
+				existing = cache.execute(
+					"SELECT dirty FROM variables WHERE name = ?",
+					(name,)
+				).fetchone()
+				if existing is not None and existing[0]:
+					continue
+
+				cache.execute(
+					"""
+					INSERT INTO variables (name, value, type, owner, dirty, updated_at)
+					VALUES (?, ?, ?, ?, 0, ?)
+					ON CONFLICT(name) DO UPDATE SET
+						value = excluded.value,
+						type = excluded.type,
+						owner = excluded.owner,
+						dirty = 0,
+						updated_at = excluded.updated_at
+					""",
+					(name, str(value), int(value_type), str(owner), time.time())
+				)
+
+
+_global_flush_thread = None
+_global_flush_thread_lock = threading.Lock()
+
+
+def _flush_global_cache_to_database():
+	cache = _BrainGlobalCache()
+	db = Database()
+
+	for v_name, v_value, v_type, v_owner, _dirty in cache.dirty_entries():
+		try:
+			v_list = db.get_entries(
+				_GLOBAL_VARIABLE_TABLE,
+				columns=_GLOBAL_VARIABLE_COLUMNS,
+				conditions={"name": v_name}
+			)
+
+			if len(v_list) == 0:
+				db.add_entry(_GLOBAL_VARIABLE_TABLE, [v_name, v_value, v_type, v_owner])
+			else:
+				v_db_owner = str(v_list[0][3])
+				if v_db_owner != str(v_owner):
+					continue
+
+				db.edit_entry(
+					_GLOBAL_VARIABLE_TABLE,
+					entry={"value": v_value, "type": v_type},
+					conditions={"name": v_name}
+				)
+		except Exception:
+			continue
+
+		cache.mark_clean(v_name)
+
+
+def _schedule_global_cache_flush():
+	global _global_flush_thread
+
+	with _global_flush_thread_lock:
+		if _global_flush_thread is not None and _global_flush_thread.is_alive():
+			return
+
+		_global_flush_thread = threading.Thread(target=_flush_global_cache_to_database, daemon=True)
+		_global_flush_thread.start()
 
 
 class BrainDiscordExtension(BxeStatefulExtension):
@@ -70,6 +258,8 @@ class BrainGlobalExtension(BxeStatefulExtension):
 	def __init__(self, author):
 		self._author = str(author)
 		self._db = Database()
+		self._cache = _BrainGlobalCache()
+		_schedule_global_cache_flush()
 		self.global_variables = {}
 		self._changed = set()
 
@@ -78,10 +268,31 @@ class BrainGlobalExtension(BxeStatefulExtension):
 		if len(names) == 0:
 			return
 
-		v_list = self._db.get_entries("b++2variables", columns=["name", "value", "type", "owner"])
-		for (v_name, v_value, v_type, _v_owner) in v_list:
-			if v_name not in names:
+		rows_by_name = self._cache.get_many(names)
+		missing_names = names - set(rows_by_name.keys())
+
+		for missing_name in missing_names:
+			try:
+				v_list = self._db.get_entries(
+					_GLOBAL_VARIABLE_TABLE,
+					columns=_GLOBAL_VARIABLE_COLUMNS,
+					conditions={"name": missing_name}
+				)
+			except Exception:
 				continue
+
+			if len(v_list) == 0:
+				continue
+
+			self._cache.refresh_from_database_rows(v_list)
+			rows_by_name[missing_name] = v_list[0]
+
+		for v_name in names:
+			row = rows_by_name.get(v_name)
+			if row is None:
+				continue
+
+			(_, v_value, v_type, *_rest) = row
 			self.global_variables[v_name] = _decode_global_value(v_value, v_type)
 
 	@staticmethod
@@ -122,18 +333,57 @@ class BrainGlobalExtension(BxeStatefulExtension):
 				if variable in self.global_variables.keys():
 					return self.global_variables[variable]
 
-				v_list = self._db.get_entries(
-					"b++2variables", columns=["name", "value", "type", "owner"], conditions={"name": variable}
-				)
-				if len(v_list) == 0:
-					raise NameError(f"No global variable by the name {variable} defined")
+				row = self._cache.get(variable)
+				if row is not None:
+					(_, v_value, v_type, _v_owner, _dirty) = row
+				else:
+					v_list = self._db.get_entries(
+						_GLOBAL_VARIABLE_TABLE,
+						columns=_GLOBAL_VARIABLE_COLUMNS,
+						conditions={"name": variable}
+					)
+					if len(v_list) == 0:
+						raise NameError(f"No global variable by the name {variable} defined")
 
-				(_, v_value, v_type, _v_owner) = v_list[0]
+					(_, v_value, v_type, _v_owner) = v_list[0]
+					self._cache.refresh_from_database_rows(v_list)
+
 				decoded = _decode_global_value(v_value, v_type)
 				self.global_variables[variable] = decoded
 				return decoded
 			case _:
 				raise BxeRuntimeSyntaxException("GLOBAL needs a function type parameter")
+
+	def _flush_cached_changes(self):
+		for v_name, v_value, v_type, v_owner, _dirty in self._cache.dirty_entries():
+			try:
+				self._write_variable_to_database(v_name, v_value, v_type, v_owner)
+			except Exception:
+				continue
+			self._cache.mark_clean(v_name)
+
+	def _write_variable_to_database(self, variable, value_string, value_type, owner):
+		v_list = self._db.get_entries(
+			_GLOBAL_VARIABLE_TABLE,
+			columns=_GLOBAL_VARIABLE_COLUMNS,
+			conditions={"name": variable}
+		)
+
+		if len(v_list) == 0:
+			self._db.add_entry(_GLOBAL_VARIABLE_TABLE, [variable, value_string, value_type, owner])
+			return
+
+		v_owner = str(v_list[0][3])
+		if v_owner != str(owner):
+			raise PermissionError(
+				f"Only the author of the {variable} variable can edit its value ({v_owner})"
+			)
+
+		self._db.edit_entry(
+			_GLOBAL_VARIABLE_TABLE,
+			entry={"value": value_string, "type": value_type},
+			conditions={"name": variable}
+		)
 
 	def persist(self):
 		for variable in self._changed:
@@ -141,25 +391,25 @@ class BrainGlobalExtension(BxeStatefulExtension):
 			value_type = _var_type(value)
 			value_string = _encode_global_value(value)
 
-			v_list = self._db.get_entries(
-				"b++2variables", columns=["name", "value", "type", "owner"], conditions={"name": variable}
-			)
+			cached = self._cache.get(variable)
+			if cached is None:
+				v_list = self._db.get_entries(
+					_GLOBAL_VARIABLE_TABLE,
+					columns=_GLOBAL_VARIABLE_COLUMNS,
+					conditions={"name": variable}
+				)
+				if len(v_list) != 0:
+					self._cache.refresh_from_database_rows(v_list)
+					cached = self._cache.get(variable)
 
-			if len(v_list) == 0:
-				self._db.add_entry("b++2variables", [variable, value_string, value_type, self._author])
-				continue
-
-			v_owner = str(v_list[0][3])
-			if v_owner != self._author:
+			if cached is not None and str(cached[3]) != self._author:
 				raise PermissionError(
-					f"Only the author of the {variable} variable can edit its value ({v_owner})"
+					f"Only the author of the {variable} variable can edit its value ({cached[3]})"
 				)
 
-			self._db.edit_entry(
-				"b++2variables",
-				entry={"value": value_string, "type": value_type},
-				conditions={"name": variable}
-			)
+			self._cache.upsert(variable, value_string, value_type, self._author, dirty=True)
+
+		_schedule_global_cache_flush()
 
 
 def _global_extension_factory(author):
@@ -176,7 +426,7 @@ def _discord_extension_factory(runner, channel):
 	return RuntimeDiscordExtension
 
 
-def run_bxe_program(code, p_args, author, runner, channel):
+def _run_bxe_program_unlocked(code, p_args, author, runner, channel):
 	buttons = []
 	warnings = []
 	try:
@@ -218,5 +468,15 @@ def run_bxe_program(code, p_args, author, runner, channel):
 				buttons = ext.buttons
 
 		return [result.output, buttons, warnings]
+	except Exception as e:
+		return [e, buttons, warnings]
+
+
+def run_bxe_program(code, p_args, author, runner, channel):
+	buttons = []
+	warnings = []
+	try:
+		with _bxe_global_execution_lock():
+			return _run_bxe_program_unlocked(code, p_args, author, runner, channel)
 	except Exception as e:
 		return [e, buttons, warnings]
