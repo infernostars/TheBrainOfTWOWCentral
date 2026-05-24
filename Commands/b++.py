@@ -1,8 +1,7 @@
 from Config._functions import strip_alpha, find_all, is_whole, strip_front
 
 from Config._bxe_parsing import run_bxe_program
-
-from Config._db import Database
+from Config._bpp_program_cache import BrainProgramCache
 
 import discord, os, re, time, traceback
 
@@ -56,10 +55,10 @@ async def MAIN(message, args, level, perms, SERVER):
 		await message.channel.send("Include a subcommand!")
 		return
 	
-	db = Database()
+	program_cache = BrainProgramCache()
 	
 	if args[1].lower() == "tags":
-		tag_list = db.get_entries("b++2programs", columns=["name", "program", "author", "uses", "created"])
+		tag_list = program_cache.list_programs()
 		
 		tag_list = [tag for tag in tag_list if tag[2] == str(message.author.id)]
 		tag_list = sorted(tag_list, reverse=True, key=lambda m: m[3])
@@ -101,16 +100,17 @@ async def MAIN(message, args, level, perms, SERVER):
 		return
 		
 	if args[1].lower() == "info":
-		tag_list = db.get_entries("b++2programs", columns=["name", "program", "author", "uses", "created", "lastused"])
-		tag_list = sorted(tag_list, reverse=True, key=lambda m: m[3])
-
 		tag_leaderboard = False
 		if level == 2: # If it's not specified, assume it's the first page
+			tag_list = program_cache.list_programs()
+			tag_list = sorted(tag_list, reverse=True, key=lambda m: m[3])
 			tag_list = tag_list[:10]
 			page = 1
 			tag_leaderboard = True
 		
 		elif is_whole(args[2]):
+			tag_list = program_cache.list_programs()
+			tag_list = sorted(tag_list, reverse=True, key=lambda m: m[3])
 			if (int(args[2]) - 1) * 10 >= len(tag_list): # Detect if the page number is too big
 				await message.channel.send(f"There is no page {args[2]} on the New B++ program list!")
 				return
@@ -123,6 +123,8 @@ async def MAIN(message, args, level, perms, SERVER):
 				tag_leaderboard = True
 
 		elif args[2].lower() == "all":
+			tag_list = program_cache.list_programs()
+			tag_list = sorted(tag_list, reverse=True, key=lambda m: m[3])
 			page = 1
 			tag_leaderboard = True
 	
@@ -156,12 +158,10 @@ async def MAIN(message, args, level, perms, SERVER):
 			return
 
 		tag_name = args[2]
-
-		if tag_name not in [x[0] for x in tag_list]:
+		program = program_cache.get_program(tag_name)
+		if program is None:
 			await message.channel.send("That tag does not exist.")
 			return
-		
-		program = tag_list[[x[0] for x in tag_list].index(tag_name)]
 
 		member_id = program[2]
 		try: # Try to gather a username from the ID
@@ -262,11 +262,11 @@ async def MAIN(message, args, level, perms, SERVER):
 			program = program[1:-1]
 		program.replace("{}", "\t")
 
-		if (tag_name,) in db.get_entries("b++2programs", columns=["name"]):
+		if program_cache.get_program(tag_name) is not None:
 			await message.channel.send("There's already a program with that name!")
 			return
 		
-		db.add_entry("b++2programs", [tag_name, program, message.author.id, 0, time.time(), 0])
+		program_cache.create_program(tag_name, program, message.author.id)
 		await message.channel.send(f"Successfully created program `{tag_name}`!")
 		return
 
@@ -278,14 +278,13 @@ async def MAIN(message, args, level, perms, SERVER):
 		
 		tag_name = args[2]
 
-		tag_list = db.get_entries("b++2programs", columns=["name", "author"])
+		tag_info = program_cache.get_program(tag_name)
 
-		if tag_name not in [x[0] for x in tag_list]:
+		if tag_info is None:
 			await message.channel.send(f"There's no program under the name `{tag_name}`!")
 			return
 
-		ind = [x[0] for x in tag_list].index(tag_name)
-		if tag_list[ind][1] != str(message.author.id) and perms < 2:
+		if tag_info[2] != str(message.author.id) and perms < 2:
 			await message.channel.send(f"You can only edit a program if you created it or if you're a staff member!")
 			return
 		
@@ -316,7 +315,7 @@ async def MAIN(message, args, level, perms, SERVER):
 		
 		program = program.replace("{}", "\v")
 		
-		db.edit_entry("b++2programs", entry={"program": program}, conditions={"name": tag_name})
+		program_cache.edit_program(tag_name, program)
 		await message.channel.send(f"Succesfully edited program {tag_name}!")
 		return
 
@@ -328,18 +327,17 @@ async def MAIN(message, args, level, perms, SERVER):
 		
 		tag_name = args[2]
 
-		tag_list = db.get_entries("b++2programs", columns=["name", "author"])
+		tag_info = program_cache.get_program(tag_name)
 
-		if tag_name not in [x[0] for x in tag_list]:
+		if tag_info is None:
 			await message.channel.send(f"There's no program under the name `{tag_name}`!")
 			return
 
-		ind = [x[0] for x in tag_list].index(tag_name)
-		if tag_list[ind][1] != str(message.author.id) and perms < 2:
+		if tag_info[2] != str(message.author.id) and perms < 2:
 			await message.channel.send(f"You can only edit a program if you created it or if you're a staff member!")
 			return
 			
-		db.remove_entry("b++2programs", conditions={"name": tag_name})
+		program_cache.delete_program(tag_name)
 		await message.channel.send(f"Succesfully deleted program {tag_name}!")
 		return
 
@@ -388,17 +386,13 @@ async def MAIN(message, args, level, perms, SERVER):
 		else:
 			tag_name = args[2]
 			invocation_name = tag_name
-			tag_list = db.get_entries("b++2programs", columns=["name", "program", "author", "uses"])
+			tag_info = program_cache.increment_uses(tag_name)
 
-			if tag_name not in [x[0] for x in tag_list]:
+			if tag_info is None:
 				await message.channel.send(f"There's no program under the name `{tag_name}`!")
 				return
 			
-			tag_info = [x for x in tag_list if x[0] == tag_name][0]
 			program = tag_info[1]
-
-			uses = tag_info[3] + 1
-			db.edit_entry("b++2programs", entry={"uses": uses, "lastused": time.time()}, conditions={"name": tag_name})
 
 			program_args = args[3:]
 			author = tag_info[2]
@@ -441,17 +435,13 @@ async def MAIN(message, args, level, perms, SERVER):
 		tag_name = args[1]
 		invocation_name = tag_name
 
-		tag_list = db.get_entries("b++2programs", columns=["name", "program", "author", "uses"])
+		tag_info = program_cache.increment_uses(tag_name)
 
-		if tag_name not in [x[0] for x in tag_list]:
+		if tag_info is None:
 			await message.channel.send(f"There's no program under the name `{tag_name}`!")
 			return
 		
-		tag_info = [x for x in tag_list if x[0] == tag_name][0]
 		program = tag_info[1]
-
-		uses = tag_info[3] + 1
-		db.edit_entry("b++2programs", entry={"uses": uses, "lastused": time.time()}, conditions={"name": tag_name})
 
 		program_args = args[2:]
 		author = tag_info[2]
@@ -498,14 +488,10 @@ async def MAIN(message, args, level, perms, SERVER):
 				custom_id = interaction.data['custom_id']
 				tag_name = custom_id.split(" ")[1]
 		
-				tag_list = db.get_entries("b++2programs", columns=["name", "program", "author", "uses"])
+				tag_info = program_cache.increment_uses(tag_name)
 		
-				if tag_name in [x[0] for x in tag_list]:
-					tag_info = [x for x in tag_list if x[0] == tag_name][0]
+				if tag_info is not None:
 					program = tag_info[1]
-			
-					uses = tag_info[3] + 1
-					db.edit_entry("b++2programs", entry={"uses": uses, "lastused": time.time()}, conditions={"name": tag_name})
 				
 					author = tag_info[2]
 				else:
