@@ -76,7 +76,7 @@ class Database:
 	# Gets entries from a table. You can specify the limit - if not, it's 10. You can specify the columns to get - if
 	# not, returns all of them. You can specify the conditions on which to gather them - if not, gathers all of them.
 	# Example: db.get_entries("birthday", limit=50, columns=["date"], conditions={"timezone": 0})
-	def get_entries(self, table, limit=None, columns=[], conditions={}):
+	def get_entries(self, table, limit=None, columns=[], conditions={}, patterns={}):
 		if table not in self.get_tables():
 			raise NameError(f"The table {table} is not in the database.")
 		
@@ -98,7 +98,7 @@ class Database:
 		with psycopg2.connect(DB_LINK, sslmode='require') as db:
 			cursor = db.cursor()
 
-			if len(conditions.keys()) == 0: # If there are no conditions, select every entry in the columns
+			if len(conditions.keys()) == 0 and len(patterns.keys()) == 0: # If there are no conditions, select every entry in the columns
 				if limit is not None:
 					sql_query += f" LIMIT {limit} "
 
@@ -107,14 +107,14 @@ class Database:
 				))
 			
 			else: # If there are conditions, use WHERE and formatting to specify them.
-				sql_query += " WHERE " + ' AND '.join([f"{col} = %s" for col in conditions.keys()])
+				sql_query += " WHERE " + ' AND '.join([f"{col} = %s" for col in conditions.keys()] + [f"{col} LIKE %s" for col in patterns.keys()])
 				
 				if limit is not None:
 					sql_query += f" LIMIT {limit} "
 
 				cursor.execute(sql.SQL(sql_query).format(
 					sql.Identifier(full_name)
-				), list(conditions.values()))
+				), list(conditions.values())+list(patterns.values()))
 			
 			output = cursor.fetchall()
 			return output
