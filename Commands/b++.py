@@ -43,9 +43,9 @@ def format_debug_warnings(warnings):
 
 	lines = [f"Debug mode: {len(warnings)} warning{'s' if len(warnings) != 1 else ''} detected."]
 	for i, warning in enumerate(warnings, 1):
-		lines.append(f"\n{i}. {warning.message}\n{warning.range.debug_info()}")
+		lines.append(f"{warning.message}\n{warning.range.debug_info()}")
 	
-	return "\n".join(lines)
+	return "\n\n".join(lines)
 
 async def MAIN(message, args, level, perms, SERVER):
 
@@ -458,30 +458,40 @@ async def MAIN(message, args, level, perms, SERVER):
 		runner = message.author
 
 	async def evaluate_and_send(program, program_args, author, runner, message, invocation_name, debug_mode=False, is_button=False):
-		try:
-			program_output, buttons, warnings = run_bxe_program(program, program_args, author, runner, message.channel)
-		except Exception as e:
-			await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(e).__name__}', description=f'```{e}```'),allowed_mentions=discord.AllowedMentions.none())
-			#await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(e).__name__}', description=f'```{e}\n\n{traceback.format_tb(e.__traceback__)}```'.replace("<@", "<\\@")))
-			return
+		program_output, buttons, warnings = run_bxe_program(program, program_args, author, runner, message.channel)
 
+		warning_prefix = ""
 		if debug_mode:
 			warning_output = format_debug_warnings(warnings)
-			if len(warning_output) <= 2000:
-				await message.channel.send(warning_output, allowed_mentions=discord.AllowedMentions.none())
-			else:
-				open(f"Config/{message.id}_warnings.txt", "w", encoding="utf-8").write(warning_output)
-				warnfile = discord.File(f"Config/{message.id}_warnings.txt")
-				os.remove(f"Config/{message.id}_warnings.txt")
-				await message.channel.send("Debug warning output is too long; sending as a file.", file=warnfile, allowed_mentions=discord.AllowedMentions.none())
+			warning_prefix = f"```{warning_output}```\n\n"
 
 		if isinstance(program_output, Exception):
-			await message.channel.send(embed=discord.Embed(color=0xFF0000, title=f'{type(program_output).__name__}', description=f'```{program_output}```'),allowed_mentions=discord.AllowedMentions.none())
+			warning_path = None
+			warning_file = None
+			if debug_mode:
+				warning_path = f"Config/{message.id}_warnings.txt"
+				open(warning_path, "w", encoding="utf-8").write(format_debug_warnings(warnings))
+				warning_file = discord.File(warning_path, filename="bpp_debug_warnings.txt")
+
+			try:
+				await message.channel.send(
+					embed=discord.Embed(
+						color=0xFF0000,
+						title=f'{type(program_output).__name__}',
+						description=f'```{program_output}```'
+					),
+					file=warning_file,
+					allowed_mentions=discord.AllowedMentions.none()
+				)
+			finally:
+				if warning_path is not None and os.path.exists(warning_path):
+					os.remove(warning_path)
 			return
 		
 		program_output = program_output
 		if is_button:
 			program_output = program_output.rstrip()+f"\n-# Button pressed by {runner.mention}"
+		combined_output = f"{warning_prefix}{program_output}"
 
 		async def button_callback(program, interaction):
 			try:
@@ -516,17 +526,17 @@ async def MAIN(message, args, level, perms, SERVER):
 			button.callback = partial(button_callback, program)
 			out_view.add_item(button)
 	
-		if len(program_output.strip()) == 0: program_output = "\u200b"
+		if len(combined_output.strip()) == 0: combined_output = "\u200b"
 			
-		if len(program_output) <= 2000:
-			cmd_output = await message.reply(program_output,view=out_view,allowed_mentions=discord.AllowedMentions.none())
-		elif len(program_output) <= 4096:
-			cmd_output = await message.reply(embed = discord.Embed(description = program_output, type = "rich"),view=out_view,allowed_mentions=discord.AllowedMentions.none())
+		if len(combined_output) <= 2000:
+			cmd_output = await message.reply(combined_output,view=out_view,allowed_mentions=discord.AllowedMentions.none())
+		elif len(combined_output) <= 4096:
+			cmd_output = await message.reply(embed = discord.Embed(description = combined_output, type = "rich"),view=out_view,allowed_mentions=discord.AllowedMentions.none())
 		else:
-			open(f"Config/{message.id}out.txt", "w", encoding="utf-8").write(program_output[:150000])
+			open(f"Config/{message.id}out.txt", "w", encoding="utf-8").write(combined_output[:150000])
 			outfile = discord.File(f"Config/{message.id}out.txt")
 			os.remove(f"Config/{message.id}out.txt")
-			cmd_output = await message.reply("⚠️ `Output too long! Sending first 150k characters in text file.`", file=outfile,view=out_view,allowed_mentions=discord.AllowedMentions.none())
+			cmd_output = await message.reply("`Output too long! Sending first 150k characters in text file.`", file=outfile,view=out_view,allowed_mentions=discord.AllowedMentions.none())
 
 		if len(buttons) != 0:
 			LATEST_BUTTONS[hash(program)] = cmd_output.id
