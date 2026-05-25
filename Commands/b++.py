@@ -36,6 +36,26 @@ REQ = []
 
 LATEST_BUTTONS = {}
 
+BUTTON_STYLE_ALIASES = {
+	"gray": discord.ButtonStyle.secondary,
+	"grey": discord.ButtonStyle.secondary,
+	"secondary": discord.ButtonStyle.secondary,
+	"default": discord.ButtonStyle.secondary,
+	"blue": discord.ButtonStyle.primary,
+	"primary": discord.ButtonStyle.primary,
+	"blurple": discord.ButtonStyle.primary,
+	"green": discord.ButtonStyle.success,
+	"success": discord.ButtonStyle.success,
+	"red": discord.ButtonStyle.danger,
+	"danger": discord.ButtonStyle.danger
+}
+
+def resolve_button_style(button_color):
+	if button_color is None:
+		return discord.ButtonStyle.secondary
+	style_key = str(button_color).strip().lower()
+	return BUTTON_STYLE_ALIASES.get(style_key, discord.ButtonStyle.secondary)
+
 def format_debug_warnings(warnings):
 	if len(warnings) == 0:
 		return "Debug mode: no syntax warnings."
@@ -531,7 +551,8 @@ async def MAIN(message, args, level, perms, SERVER):
 		out_view = View()
 		for button_value in buttons:
 			if len(button_value) == 1: button_value += ["​"]
-			button = Button(label = button_value[1] if button_value[1] != "" else "​", style = discord.ButtonStyle.secondary, custom_id = f"{time.time()} {invocation_name} {button_value[0]}", disabled=button_value[0]=="null")
+			button_style = resolve_button_style(button_value[2]) if len(button_value) >= 3 else discord.ButtonStyle.secondary
+			button = Button(label = button_value[1] if button_value[1] != "" else "​", style = button_style, custom_id = f"{time.time()} {invocation_name} {button_value[0]}", disabled=button_value[0]=="null")
 			button.callback = partial(button_callback, program)
 			out_view.add_item(button)
 	
