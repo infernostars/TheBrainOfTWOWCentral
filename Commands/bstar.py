@@ -68,19 +68,13 @@ async def MAIN(message, args, level, perms, SERVER, LOGIN):
 
 	# """Run B* code"""
 	if subcommand == "run":
-		# TODO: Does this need to be replaced with b++.py version?
-		# probably
-		try:
-			output = runCode(await accept_file_or_message(message), message.author, [], message.author.id)
-			await message.channel.send(embed=discord.Embed(description=output))
-		except Exception as e:
-			await message.channel.send(e)
+		await message.channel.send("B* has been deprecated, and you can no longer run code with it.")
 		return
 
 	if subcommand == "create":
-
 		await message.channel.send("B* has been deprecated, and you can no longer create new programs with it.")
 		return
+
 	if subcommand == "info":
 		tag_list = db.get_entries("bsprograms", columns=["name", "program", "author", "uses", "created", "lastused"])
 		tag_list = sorted(tag_list, reverse=True, key=lambda m: m[3])
