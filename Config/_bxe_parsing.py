@@ -665,16 +665,31 @@ class BrainUserExtension(BxeStatefulExtension):
 		return names
 
 	@bpp_function("USER")
-	def user_fn(self, func_type: str, variable: str, value: Any = None):
+	def user_fn(self, func_type: str, variable: str, value: Any = None, user: Any = None):
 		if re.search(r"[^A-Za-z_0-9]", variable) or re.search(r"[0-9]", variable[0]):
 			raise NameError(
 			f"User variable name must be only letters, underscores and numbers, and cannot start with a number")
 
-		db_name = variable + ":" + self._runner_id
+		target_user = self._runner_id if user is None else str(user)
+		db_name = variable + ":" + target_user
 		match str(func_type).lower():
 			case "define":
-				if len(str(value)) > 100_000:
-					raise ValueError("User variables are capped at 100,000 characters or fewer")
+				if len(str(value)) > 10_000:
+					raise ValueError("User variables are capped at 10,000 characters or fewer")
+
+				if user is not None:
+					existing = self._cache.get(variable, target_user)
+					if existing is None:
+						v_list = self._db.get_entries(
+							_USER_VARIABLE_TABLE,
+							columns=_USER_VARIABLE_COLUMNS,
+							conditions={"name": db_name}
+						)
+						if len(v_list) == 0:
+							raise NameError(f"The user with id {user} does not have {variable} defined, so you cannot set it.")
+
+						self._cache.refresh_from_database_rows(v_list)
+
 				self.user_variables[db_name] = value
 				self._changed.add(db_name)
 				return ""
