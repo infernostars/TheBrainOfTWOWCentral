@@ -419,18 +419,28 @@ class BrainDiscordExtension(BxeStatefulExtension):
 
 	@bpp_function()
 	def USERNAME(self):
+		"""Get the username of the user running the tag.
+		@returns the runner's username"""
 		return self._runner.name
 
 	@bpp_function()
 	def USERID(self):
+		"""Get the Discord ID of the user running the tag.
+		@returns the runner's ID"""
 		return self._runner.id
 
 	@bpp_function()
 	def CHANNEL(self):
+		"""Get the ID of the channel the tag was run in.
+		@returns the channel ID"""
 		return self._channel.id
 
 	@bpp_function()
 	def BUTTON(self, *args):
+		"""Create a button that can be pressed to rerun the tag with special arguments.
+		@parameter args a string containing the arguments to run the tag with; if it's the string "null", disables the button
+		@parameter label the label of the button
+		@returns nothing"""
 		self.buttons.append([str(a) for a in args])
 		return ""
 
@@ -498,6 +508,14 @@ class BrainGlobalExtension(BxeStatefulExtension):
 
 	@bpp_function("GLOBAL")
 	def global_fn(self, func_type: str, variable: str, value: Any = None):
+		"""Works with global variables, variables that persist between tag runs.
+		The creator of a global variable becomes its owner, and from then on only the owner and their tags may modify it. However, anybody may access the value of the variable.
+		**GLOBAL DEFINE**: Defines or sets a global variable `v` to `s`.
+		**GLOBAL VAR**: Gets the value of the global variable `s`.
+		@parameter s the global variable to be accessed
+		@parameter v (DEFINE) the value to set `s` to
+		@returns (DEFINE) nothing
+		@returns (VAR) the value of `s`"""
 		if re.search(r"[^A-Za-z_0-9]", variable) or re.search(r"[0-9]", variable[0]):
 			raise NameError(
 			f"Global variable name must be only letters, underscores and numbers, and cannot start with a number")
@@ -666,6 +684,15 @@ class BrainUserExtension(BxeStatefulExtension):
 
 	@bpp_function("USER")
 	def user_fn(self, func_type: str, variable: str, value: Any = None, user: Any = None):
+		"""Works with user variables, variables that persist between tag runs and are unique to each user.
+		The creator of a user variable becomes its owner, and from then on only the owner and their tags may modify it. However, anybody may access the value of the variable.
+		**USER DEFINE**: Defines or sets a user variable `v` to `s`. Changes the runner's instance by default, but if another user has already created an instance, `id` can be used to change theirs.
+		**USER VAR**: Gets the value of the user variable `s`. Gets the runner's instance by default, but `id` can be used to get a different user's instance.
+		@parameter s the user variable to be accessed
+		@parameter v (DEFINE) the value to set `s` to
+		@optional id the user ID of a user that has defined an instance of the variable
+		@returns (DEFINE) nothing
+		@returns (VAR) the value of `s`"""
 		if re.search(r"[^A-Za-z_0-9]", variable) or re.search(r"[0-9]", variable[0]):
 			raise NameError(
 			f"User variable name must be only letters, underscores and numbers, and cannot start with a number")
@@ -946,12 +973,14 @@ def format_doc(name, doc):
 	description = f"`{build_signature_from_docstring(name, doc)}`\n" + " ".join(summary) if summary else ""
 	fields: list[dict] = []
 	if params or optionals:
+		separator = "\n" if (params and optionals) else ""
 		fields.append({
 			"name": "**Parameters**",
 			"value": "\n".join(
 				f"- `{name}`: {desc}" if desc else f"- `{name}`"
 				for name, desc in params
 			)
+			+ separator
 			+ "\n".join(
 				f"- `{name}`?: {desc}" if desc else f"- `{name}`"
 				for name, desc in optionals

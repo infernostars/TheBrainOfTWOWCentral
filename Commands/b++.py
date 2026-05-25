@@ -218,15 +218,15 @@ async def MAIN(message, args, level, perms, SERVER):
 	if args[1].lower() == "docs":
 		docs = get_ext_docs()
 		if level == 2:
-			funcs = ", ".join([i.upper() for i in docs.keys()]),
+			funcs = ", ".join([i.upper() for i in docs.keys()])
 			embed = {"title": "All B++ functions", "description": funcs, "color": 0x93a5a6}
 			await message.channel.send(embed=discord.Embed.from_dict(embed))
 			return
-		term = args[2]
+		term = args[2].upper()
 		func = ""
 		for f in docs:
-			if f.startswith(term):
-				func = f
+			if f.upper().startswith(term):
+				func = f.upper()
 		if not func:
 			await message.channel.send("Could not find a function with that name!")
 			return
