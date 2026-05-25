@@ -733,7 +733,8 @@ class BrainUserExtension(BxeStatefulExtension):
 			value_type = _var_type(value)
 			value_string = _encode_global_value(value)
 
-			cached = self._cache.get(variable)
+			varname, username = variable.split(":")
+			cached = self._cache.get(varname, username)
 			if cached is None:
 				v_list = self._db.get_entries(
 					_USER_VARIABLE_TABLE,
@@ -742,7 +743,7 @@ class BrainUserExtension(BxeStatefulExtension):
 				)
 				if len(v_list) != 0:
 					self._cache.refresh_from_database_rows(v_list)
-					cached = self._cache.get(variable)
+					cached = self._cache.get(varname, username)
 
 			if cached is not None and str(cached[3]) != self._author:
 				raise PermissionError(
