@@ -807,6 +807,8 @@ def _run_bxe_program_unlocked(code, p_args, author, runner, channel):
 		for ext in result.stateful_extensions:
 			if isinstance(ext, BrainGlobalExtension):
 				ext.persist()
+			if isinstance(ext, BrainUserExtension):
+				ext.persist()
 			elif isinstance(ext, BrainDiscordExtension):
 				buttons = ext.buttons
 
@@ -820,6 +822,7 @@ def run_bxe_program(code, p_args, author, runner, channel):
 	warnings = []
 	try:
 		with _bxe_global_execution_lock():
-			return _run_bxe_program_unlocked(code, p_args, author, runner, channel)
+			with _bxe_user_execution_lock():
+				return _run_bxe_program_unlocked(code, p_args, author, runner, channel)
 	except Exception as e:
 		return [e, buttons, warnings]
