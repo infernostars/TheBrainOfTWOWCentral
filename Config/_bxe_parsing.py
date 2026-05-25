@@ -970,7 +970,7 @@ def format_doc(name, doc):
 			_extend_last(notes, stripped)
 
 	title = name
-	description = f"`{build_signature_from_docstring(name, doc)}`\n" + " ".join(summary) if summary else ""
+	description = f"`{build_signature_from_docstring(name, doc)}`\n" + "\n".join(summary) if summary else ""
 	fields: list[dict] = []
 	if params or optionals:
 		separator = "\n" if (params and optionals) else ""
