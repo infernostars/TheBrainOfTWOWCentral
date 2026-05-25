@@ -759,7 +759,7 @@ class BrainUserExtension(BxeStatefulExtension):
 			author = self._cache.get_author(varname)
 			if author: author = author[0]
 			
-			if (author != self._author) or (cached is not None and str(cached[3]) != self._author):
+			if (author is not None and author != self._author) or (cached is not None and str(cached[3]) != self._author):
 				raise PermissionError(
 					f"Only the author of the {varname} user variable can edit its value ({author or cached[3]})"
 				)
