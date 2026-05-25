@@ -679,11 +679,11 @@ class BrainUserExtension(BxeStatefulExtension):
 				return ""
 			case "var":
 				if value:
-					db_name = variable + ":" + value
+					db_name = variable + ":" + str(value)
 				if db_name in self.user_variables.keys():
 					return self.user_variables[db_name]
 
-				row = self._cache.get(variable, self._runner_id)
+				row = self._cache.get(variable, str(value) or self._runner_id)
 				if row is not None:
 					(_, v_value, v_type, _v_owner, _dirty) = row
 				else:
