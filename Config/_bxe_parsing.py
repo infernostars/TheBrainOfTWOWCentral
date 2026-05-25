@@ -708,7 +708,7 @@ class BrainUserExtension(BxeStatefulExtension):
 		v_list = self._db.get_entries(
 			_USER_VARIABLE_TABLE,
 			columns=_USER_VARIABLE_COLUMNS,
-			patterns={"name": variable.split(":")[0]+":%"}
+			patterns={"name": variable.split(":")[0]+"\\:%"}
 		)
 
 		if len(v_list) == 0:
