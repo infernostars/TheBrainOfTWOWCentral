@@ -322,7 +322,7 @@ class _BrainUserCache:
 					dirty = excluded.dirty,
 					updated_at = excluded.updated_at
 				""",
-				(str(name)+":"+str(user), str(value), int(value_type), str(owner), int(dirty), time.time())
+				(str(name), str(value), int(value_type), str(owner), int(dirty), time.time())
 			)
 
 	def mark_clean(self, name):
