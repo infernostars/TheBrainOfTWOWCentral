@@ -708,10 +708,10 @@ class BrainUserExtension(BxeStatefulExtension):
 		v_list = self._db.get_entries(
 			_USER_VARIABLE_TABLE,
 			columns=_USER_VARIABLE_COLUMNS,
-			patterns={"name": variable.split(":")[0]+"\\:%"}
+			patterns={"name": variable.split(":")[0].replace("_","\_")+":%"}
 		)
 
-		raise PermissionError(v_list)
+		raise PermissionError(str(v_list))
 
 		if len(v_list) == 0:
 			self._db.add_entry(_USER_VARIABLE_TABLE, [variable, value_string, value_type, owner])
