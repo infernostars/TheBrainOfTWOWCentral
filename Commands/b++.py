@@ -1,6 +1,6 @@
 from Config._functions import strip_alpha, find_all, is_whole, strip_front
 
-from Config._bxe_parsing import run_bxe_program
+from Config._bxe_parsing import run_bxe_program, get_ext_docs, format_doc
 from Config._bpp_program_cache import BrainProgramCache
 
 import discord, os, re, time, traceback
@@ -215,6 +215,28 @@ async def MAIN(message, args, level, perms, SERVER):
 		
 		return
 
+	if args[1].lower() == "docs":
+		docs = get_ext_docs()
+		if level == 2:
+			funcs = ", ".join([i.upper() for i in docs.keys()]),
+			embed = {"title": "All B++ functions", "description": funcs, "color": 0x93a5a6}
+			await message.channel.send(embed=discord.Embed.from_dict(embed))
+			return
+		term = args[2]
+		func = ""
+		for f in docs:
+			if f.startswith(term):
+				func = f
+		if not func:
+			await message.channel.send("Could not find a function with that name!")
+			return
+		desc = docs[func]
+		if desc:
+			embed = format_doc(func, desc)
+			embed["color"] = 0x93a5a6
+		else:
+			embed = {"title": func, "description": "No documentation was found for this function.", "color": 0x93a5a6}
+		await message.channel.send(embed=discord.Embed.from_dict(embed))
 
 	if args[1].lower() == "create":
 		if level == 2:
@@ -228,7 +250,7 @@ async def MAIN(message, args, level, perms, SERVER):
 			"Tag name can only contain letters, numbers and underscores, and cannot start with a number!")
 			return
 		
-		if tag_name in ["create", "edit", "delete", "info", "run", "help", "tags", "debug"]:
+		if tag_name in ["create", "edit", "delete", "info", "run", "help", "tags", "debug", "docs"]:
 			await message.channel.send("The tag name must not be a reserved keyword!")
 			return
 
