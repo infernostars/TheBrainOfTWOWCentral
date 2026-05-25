@@ -56,6 +56,16 @@ def resolve_button_style(button_color):
 	style_key = str(button_color).strip().lower()
 	return BUTTON_STYLE_ALIASES.get(style_key, discord.ButtonStyle.secondary)
 
+BUTTON_LOCK_ALIASES = {
+	"true", "t", "1", "yes", "y", "on", "lock", "locked"
+}
+
+def resolve_button_lock(button_lock):
+	if button_lock is None:
+		return False
+	lock_key = str(button_lock).strip().lower()
+	return lock_key in BUTTON_LOCK_ALIASES
+
 def format_debug_warnings(warnings):
 	if len(warnings) == 0:
 		return "Debug mode: no syntax warnings."
@@ -526,12 +536,16 @@ async def MAIN(message, args, level, perms, SERVER):
 			program_output = program_output.rstrip()+f"\n-# Button pressed by {runner.mention}"
 		combined_output = f"{warning_prefix}{program_output}"
 
-		async def button_callback(program, interaction):
+		async def button_callback(program, button_args, locked_runner_id, interaction):
 			try:
-				custom_id = interaction.data['custom_id']
-				tag_name = custom_id.split(" ")[1]
+				if locked_runner_id is not None and interaction.user.id != locked_runner_id:
+					await interaction.response.send_message(
+						"This button is locked to the user who ran this command.",
+						ephemeral=True
+					)
+					return
 		
-				tag_info = program_cache.increment_uses(tag_name)
+				tag_info = program_cache.increment_uses(invocation_name)
 		
 				if tag_info is not None:
 					program = tag_info[1]
@@ -541,10 +555,10 @@ async def MAIN(message, args, level, perms, SERVER):
 					author = interaction.user.id
 					
 				if hash(program) not in LATEST_BUTTONS.keys() or LATEST_BUTTONS[hash(program)] <= interaction.message.id:
-					await evaluate_and_send(program, custom_id.split(" ")[2:], author, interaction.user, interaction.message, invocation_name, False, True)
+					await evaluate_and_send(program, button_args, author, interaction.user, interaction.message, invocation_name, False, True)
 				
 				await interaction.response.edit_message(view=None)
-			except:
+			except Exception as e:
 				await interaction.response.send_message(embed=discord.Embed(color=0xFF0000, title=f'{type(e).__name__}', description=f'```{e}\n\n{traceback.format_tb(e.__traceback__)}```'))
 				
 	
@@ -552,8 +566,10 @@ async def MAIN(message, args, level, perms, SERVER):
 		for button_value in buttons:
 			if len(button_value) == 1: button_value += ["​"]
 			button_style = resolve_button_style(button_value[2]) if len(button_value) >= 3 else discord.ButtonStyle.secondary
+			button_locked = resolve_button_lock(button_value[3]) if len(button_value) >= 4 else False
+			button_args = button_value[0].split()
 			button = Button(label = button_value[1] if button_value[1] != "" else "​", style = button_style, custom_id = f"{time.time()} {invocation_name} {button_value[0]}", disabled=button_value[0]=="null")
-			button.callback = partial(button_callback, program)
+			button.callback = partial(button_callback, program, button_args, runner.id if button_locked else None)
 			out_view.add_item(button)
 	
 		if len(combined_output.strip()) == 0: combined_output = "\u200b"
