@@ -295,11 +295,11 @@ class _BrainUserCache:
 		if len(names) == 0:
 			return {}
 
-		placeholders = ", ".join(["?:"+str(user)] * len(names))
+		placeholders = ", ".join(["?"] * len(names))
 		with self._connect() as cache:
 			rows = cache.execute(
 				f"SELECT name, value, type, owner, dirty FROM variables WHERE name IN ({placeholders})",
-				list(names)
+				[name + ":" + str(user) for name in names]
 			).fetchall()
 		return {row[0]: row for row in rows}
 
