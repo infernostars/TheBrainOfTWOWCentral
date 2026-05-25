@@ -219,7 +219,7 @@ async def MAIN(message, args, level, perms, SERVER):
 		docs = get_ext_docs()
 		if level == 2:
 			funcs = ", ".join([i.upper() for i in docs.keys()]),
-			embed = {"title": "All B++ functions", "description": funcs}
+			embed = {"title": "All B++ functions", "description": funcs, "color": 0x93a5a6}
 			await message.channel.send(embed=discord.Embed.from_dict(embed))
 			return
 		term = args[2]
