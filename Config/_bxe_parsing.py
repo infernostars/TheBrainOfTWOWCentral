@@ -309,7 +309,7 @@ class _BrainUserCache:
 				"SELECT name, value, type, owner, dirty FROM variables WHERE dirty = 1"
 			).fetchall()
 
-	def upsert(self, name, user, value, value_type, owner, dirty):
+	def upsert(self, name, value, value_type, owner, dirty):
 		with self._connect() as cache:
 			cache.execute(
 				"""
@@ -747,7 +747,7 @@ class BrainUserExtension(BxeStatefulExtension):
 
 			if cached is not None and str(cached[3]) != self._author:
 				raise PermissionError(
-					f"Only the author of the {variable} variable can edit its value ({cached[3]})"
+					f"Only the author of the {varname} user variable can edit its value ({cached[3]})"
 				)
 
 			self._cache.upsert(variable, value_string, value_type, self._author, dirty=True)
