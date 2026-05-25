@@ -1,6 +1,4 @@
 import os
-import re
-import time
 
 import discord
 
@@ -13,17 +11,12 @@ from datetime import datetime as dt
 def HELP(PREFIX):
 	return {
 		"COOLDOWN": 5,
-		"MAIN": "Allows you to write short tags and/or programs",
-		"FORMAT": "[subcommand]",
+		"MAIN": "Allows you to view B* programs made before deprecation.",
+		"FORMAT": "info [page or program]",
 		"CHANNEL": 0,
-		"USAGE": f"""Using `tc/bstar run [code]` allows you to run `[code]` as B* source code. Using `tc/bstar info 
-		(page)` displays a paged list of all B* programs by use count, while using `tc/bstar info (program)` 
-		displays information and the source code of a specific program. `tc/bstar create [program] [code]` can be used 
-		to save code into a specific program name, which can be edited by its creator with `tc/bstar edit [program] 
-		[newcode]` or deleted with `tc/bstar delete [program]`. Finally, `tc/bstar [program] (args)` allows you to run any 
-		saved program.^n^n
-		The full documentation for all B* program functionality is displayed in this document:^n
-		https://github.com/b-Development-Team/b-star/wiki
+		"USAGE": f"""Using `tc/bstar info (page)` displays a paged list of all B* programs by historical use count, 
+		while using `tc/bstar (program)` or `tc/bstar info (program)` displays information and the source code of
+		a specific program. 
 		""".replace("\n", "").replace("\t", "").replace("^n", "\n"),
 		"CATEGORY": "Fun"
 	}
@@ -32,9 +25,6 @@ def HELP(PREFIX):
 PERMS = 1  # Member
 ALIASES = ["B*"]
 REQ = ["LOGIN"]
-
-setupFunctions()
-
 
 async def accept_file_or_message(message):
 	if len(message.attachments) > 0:
