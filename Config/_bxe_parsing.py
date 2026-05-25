@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import threading
 import time
+import inspect
 from contextlib import contextmanager
 from typing import Any
 
@@ -30,7 +31,7 @@ from bxengine.runtime.extensions.BxeExtension import (
 	BxeRuntimeSyntaxException,
 )
 from bxengine.exceptions import ProgramDefinedException
-
+from bxengine.docs import get_docs
 
 _GLOBAL_VARIABLE_TABLE = "b++2variables"
 _GLOBAL_VARIABLE_COLUMNS = ["name", "value", "type", "owner"]
@@ -68,7 +69,7 @@ def _global_cache_path():
 
 def _global_cache_lock_path():
 	return f"{_global_cache_path()}.lock"
-	
+
 @contextmanager
 def _bxe_global_execution_lock():
 	lock_path = _global_cache_lock_path()
@@ -238,7 +239,7 @@ def _user_cache_path():
 
 def _user_cache_lock_path():
 	return f"{_user_cache_path()}.lock"
-	
+
 @contextmanager
 def _bxe_user_execution_lock():
 	lock_path = _user_cache_lock_path()
@@ -298,7 +299,7 @@ class _BrainUserCache:
 				(str(name)+":%",)
 			).fetchone()
 		return row
-	
+
 	def get_many(self, names, user):
 		if len(names) == 0:
 			return {}
@@ -745,7 +746,7 @@ class BrainUserExtension(BxeStatefulExtension):
 
 			varname, username = variable.split(":")
 			cached = self._cache.get(varname, username)
-	
+
 			if cached is None:
 				v_list = self._db.get_entries(
 					_USER_VARIABLE_TABLE,
@@ -755,10 +756,10 @@ class BrainUserExtension(BxeStatefulExtension):
 				if len(v_list) != 0:
 					self._cache.refresh_from_database_rows(v_list)
 					cached = self._cache.get(varname, username)
-					
+
 			author = self._cache.get_author(varname)
 			if author: author = author[0]
-			
+
 			if (author is not None and author != self._author) or (cached is not None and str(cached[3]) != self._author):
 				raise PermissionError(
 					f"Only the author of the {varname} user variable can edit its value ({author or cached[3]})"
@@ -782,6 +783,175 @@ def _discord_extension_factory(runner, channel):
 			super().__init__(runner, channel)
 	return RuntimeDiscordExtension
 
+docs_extensions = [BuiltinExtension, BrainDiscordExtension, BrainGlobalExtension, BrainUserExtension]
+
+def get_ext_docs():
+	funcs = {}
+	for ext in docs_extensions:
+		docs = get_docs(ext)
+		for f in docs:
+			funcs[f] = docs[f]
+	return funcs
+
+_DOC_TAG_PATTERN = re.compile(r"^@(?P<tag>[a-zA-Z][a-zA-Z0-9_-]*)\b(?:\s+(?P<body>.*))?$")
+
+def build_signature_from_docstring(function_name: str, docstring: str | None) -> str:
+	if not docstring:
+		return f"[{function_name}]"
+
+	required: list[str] = []
+	optional: list[str] = []
+
+	for line in inspect.cleandoc(docstring).splitlines():
+		stripped = line.strip()
+		if not stripped:
+			continue
+
+		match = _DOC_TAG_PATTERN.match(stripped)
+		if not match:
+			continue
+
+		tag = match.group("tag").lower()
+		if tag not in {"parameter", "optional"}:
+			continue
+
+		body = (match.group("body") or "").strip()
+		if not body:
+			continue
+
+		param_name = body.split(None, 1)[0]
+		if tag == "parameter":
+			required.append(param_name)
+			continue
+
+		if param_name.endswith("?") or param_name == "...":
+			optional.append(param_name)
+		else:
+			optional.append(f"{param_name}?")
+
+	arg_names = [*required, *optional]
+	if not arg_names:
+		return f"[{function_name}]"
+	return f"[{function_name} {' '.join(arg_names)}]"
+
+def _append_text(target: list[str], text: str) -> None:
+	clean = text.strip()
+	if clean:
+		target.append(clean)
+
+def _extend_last(target: list[str], text: str) -> None:
+	clean = text.strip()
+	if not clean:
+		return
+	if target:
+		target[-1] = f"{target[-1]} {clean}"
+	else:
+		target.append(clean)
+
+def format_doc(name, doc):
+	if not doc:
+		return None
+
+	lines = inspect.cleandoc(doc).splitlines()
+	summary: list[str] = []
+	params: list[tuple[str, str]] = []
+	optionals: list[tuple[str, str]] = []
+	returns: list[str] = []
+	raises: list[str] = []
+	notes: list[str] = []
+	examples: list[str] = []
+	active: tuple[str, int] | None = None
+
+	for line in lines:
+		stripped = line.strip()
+		if not stripped:
+			active = None
+			continue
+
+		match = _DOC_TAG_PATTERN.match(stripped)
+		if match:
+			tag = match.group("tag").lower()
+			body = (match.group("body") or "").strip()
+
+			if tag == "parameter":
+				if body:
+					parts = body.split(None, 1)
+					param_name = parts[0]
+					param_desc = parts[1] if len(parts) > 1 else ""
+				else:
+					param_name = "param"
+					param_desc = ""
+				params.append((param_name, param_desc))
+				active = ("parameter", len(params) - 1)
+			elif tag == "optional":
+				if body:
+					parts = body.split(None, 1)
+					param_name = parts[0]
+					param_desc = parts[1] if len(parts) > 1 else ""
+				else:
+					param_name = "param"
+					param_desc = ""
+				optionals.append((param_name, param_desc))
+				active = ("optional", len(params) - 1)
+			elif tag in {"return", "returns"}:
+				returns.append(body)
+				active = ("returns", len(returns) - 1)
+			elif tag in {"raise", "raises", "throws"}:
+				raises.append(body)
+				active = ("raises", len(raises) - 1)
+			elif tag == "example":
+				examples.append(body)
+				active = ("examples", len(examples) - 1)
+			else:
+				notes.append(f"@{tag} {body}".strip())
+				active = ("notes", len(notes) - 1)
+			continue
+
+		if active is None:
+			_append_text(summary, stripped)
+			continue
+
+		section, index = active
+		if section == "param":
+			name, desc = params[index]
+			params[index] = (name, f"{desc} {stripped}".strip())
+		if section == "optional":
+			name, desc = optionals[index]
+			optionals[index] = (name, f"{desc} {stripped}".strip())
+		elif section == "returns":
+			_extend_last(returns, stripped)
+		elif section == "raises":
+			_extend_last(raises, stripped)
+		elif section == "examples":
+			_extend_last(examples, stripped)
+		else:
+			_extend_last(notes, stripped)
+
+	title = name
+	description = f"`{build_signature_from_docstring(name, doc)}`\n" + " ".join(summary) if summary else ""
+	fields: list[dict] = []
+	if params or optionals:
+		fields.append({
+			"name": "**Parameters**",
+			"value": "\n".join(
+				f"- `{name}`: {desc}" if desc else f"- `{name}`"
+				for name, desc in params
+			)
+			+ "\n".join(
+				f"- `{name}`?: {desc}" if desc else f"- `{name}`"
+				for name, desc in optionals
+			)
+		})
+	if returns:
+		fields.append({"name": "**Returns**", "value": "\n".join(f"- {item}" for item in returns)})
+	if raises:
+		fields.append({"name": "**Raises**", "value": "\n".join(f"- {item}" for item in raises)})
+	if examples:
+		fields.append({"name": "**Examples**", "value": "\n".join(f"- `{item}`" for item in examples)})
+	if notes:
+		fields.append({"name": "**Notes**", "value": "\n".join(f"- {item}" for item in notes)})
+
+	return {"title": title, "description": description, "fields": fields}
 
 def _run_bxe_program_unlocked(code, p_args, author, runner, channel):
 	buttons = []
