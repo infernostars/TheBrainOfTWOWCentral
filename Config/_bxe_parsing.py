@@ -300,6 +300,20 @@ class _BrainUserCache:
 			).fetchone()
 		return row
 
+	def list_user_ids(self, name):
+		with self._connect() as cache:
+			rows = cache.execute(
+				"SELECT name FROM variables WHERE name LIKE ?",
+				(str(name)+":%",)
+			).fetchall()
+
+		users = []
+		for (full_name,) in rows:
+			parts = str(full_name).split(":", 1)
+			if len(parts) == 2:
+				users.append(parts[1])
+		return users
+
 	def get_many(self, names, user):
 		if len(names) == 0:
 			return {}
@@ -627,6 +641,7 @@ class BrainUserExtension(BxeStatefulExtension):
 		_schedule_user_cache_flush()
 		self.user_variables = {}
 		self._changed = set()
+		self._user_list_cache_warmed = set()
 
 	def post_parse_hook(self, nodes):
 		names = self._collect_trivial_user_var_reads(nodes)
@@ -688,11 +703,13 @@ class BrainUserExtension(BxeStatefulExtension):
 		The creator of a user variable becomes its owner, and from then on only the owner and their tags may modify it. However, anybody may access the value of the variable.
 		**USER DEFINE**: Defines or sets a user variable `v` to `s`. Changes the runner's instance by default, but if another user has already created an instance, `id` can be used to change theirs.
 		**USER VAR**: Gets the value of the user variable `s`. Gets the runner's instance by default, but `id` can be used to get a different user's instance.
+		**USER LIST**: Gets a list of user IDs that have an instance of the user variable `s`.
 		@parameter s the user variable to be accessed
 		@parameter v (DEFINE) the value to set `s` to
 		@optional id the user ID of a user that has defined an instance of the variable
 		@returns (DEFINE) nothing
-		@returns (VAR) the value of `s`"""
+		@returns (VAR) the value of `s`
+		@returns (LIST) a list of user IDs that have `s` defined"""
 		if re.search(r"[^A-Za-z_0-9]", variable) or re.search(r"[0-9]", variable[0]):
 			raise NameError(
 			f"User variable name must be only letters, underscores and numbers, and cannot start with a number")
@@ -744,6 +761,35 @@ class BrainUserExtension(BxeStatefulExtension):
 				decoded = _decode_global_value(v_value, v_type)
 				self.user_variables[db_name] = decoded
 				return decoded
+			case "list":
+				if value is not None or user is not None:
+					raise BxeRuntimeSyntaxException("USER LIST expected 2 parameters, but got more")
+
+				users = set()
+				for user_id in self._cache.list_user_ids(variable):
+					users.add(str(user_id))
+
+				if variable not in self._user_list_cache_warmed:
+					v_list = self._db.get_entries(
+						_USER_VARIABLE_TABLE,
+						columns=_USER_VARIABLE_COLUMNS,
+						patterns={"name": variable.replace("_", r"\_")+":%"}
+					)
+					if len(v_list) != 0:
+						self._cache.refresh_from_database_rows(v_list)
+
+					for db_name, *_ in v_list:
+						parts = str(db_name).split(":", 1)
+						if len(parts) == 2:
+							users.add(parts[1])
+					self._user_list_cache_warmed.add(variable)
+
+				for local_name in self.user_variables.keys():
+					parts = str(local_name).split(":", 1)
+					if len(parts) == 2 and parts[0] == variable:
+						users.add(parts[1])
+
+				return sorted(users)
 			case _:
 				raise BxeRuntimeSyntaxException("USER needs a function type parameter")
 
