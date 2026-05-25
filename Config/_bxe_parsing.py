@@ -291,6 +291,14 @@ class _BrainUserCache:
 			).fetchone()
 		return row
 
+	def get_author(self, name):
+		with self._connect() as cache:
+			row = cache.execute(
+				"SELECT owner FROM variables WHERE name LIKE ?",
+				(str(name)+":%",)
+			).fetchone()
+		return row
+	
 	def get_many(self, names, user):
 		if len(names) == 0:
 			return {}
@@ -710,9 +718,6 @@ class BrainUserExtension(BxeStatefulExtension):
 			columns=_USER_VARIABLE_COLUMNS,
 			patterns={"name": variable.split(":")[0].replace("_","\_")+":%"}
 		)
-
-		raise PermissionError(str(v_list))
-
 		if len(v_list) == 0:
 			self._db.add_entry(_USER_VARIABLE_TABLE, [variable, value_string, value_type, owner])
 			return
@@ -723,11 +728,14 @@ class BrainUserExtension(BxeStatefulExtension):
 				f"Only the author of the {variable} variable can edit its value ({v_owner})"
 			)
 
-		self._db.edit_entry(
-			_USER_VARIABLE_TABLE,
-			entry={"value": value_string, "type": value_type},
-			conditions={"name": variable}
-		)
+		if variable in [x[0] for x in v_list]:
+			self._db.edit_entry(
+				_USER_VARIABLE_TABLE,
+				entry={"value": value_string, "type": value_type},
+				conditions={"name": variable}
+			)
+		else:
+			self._db.add_entry(_USER_VARIABLE_TABLE, [variable, value_string, value_type, owner])
 
 	def persist(self):
 		for variable in self._changed:
@@ -737,19 +745,23 @@ class BrainUserExtension(BxeStatefulExtension):
 
 			varname, username = variable.split(":")
 			cached = self._cache.get(varname, username)
+	
 			if cached is None:
 				v_list = self._db.get_entries(
 					_USER_VARIABLE_TABLE,
 					columns=_USER_VARIABLE_COLUMNS,
-					conditions={"name": variable}
+					patterns={"name": variable.split(":")[0].replace("_","\_")+":%"}
 				)
 				if len(v_list) != 0:
 					self._cache.refresh_from_database_rows(v_list)
 					cached = self._cache.get(varname, username)
-
-			if cached is not None and str(cached[3]) != self._author:
+					
+			author = self._cache.get_author(varname)
+			if author: author = author[0]
+			
+			if (author != self._author) or (cached is not None and str(cached[3]) != self._author):
 				raise PermissionError(
-					f"Only the author of the {varname} user variable can edit its value ({cached[3]})"
+					f"Only the author of the {varname} user variable can edit its value ({author or cached[3]})"
 				)
 
 			self._cache.upsert(variable, value_string, value_type, self._author, dirty=True)
