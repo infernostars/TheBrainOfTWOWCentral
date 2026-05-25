@@ -679,7 +679,7 @@ class BrainUserExtension(BxeStatefulExtension):
 				return ""
 			case "var":
 				if value:
-					raise BxeRuntimeSyntaxException("USER VAR expected 2 parameters, but got 3")
+					db_name = variable + ":" + value
 				if db_name in self.user_variables.keys():
 					return self.user_variables[db_name]
 
@@ -689,7 +689,7 @@ class BrainUserExtension(BxeStatefulExtension):
 				else:
 					v_list = self._db.get_entries(
 						_USER_VARIABLE_TABLE,
-						columns=_USER_VARIABLE_COLUMNS,
+						columns=_USER_VARIABLE_COLUMNS
 						conditions={"name": db_name}
 					)
 					if len(v_list) == 0:
