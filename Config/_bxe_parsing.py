@@ -683,13 +683,13 @@ class BrainUserExtension(BxeStatefulExtension):
 				if db_name in self.user_variables.keys():
 					return self.user_variables[db_name]
 
-				row = self._cache.get(variable, str(value) or self._runner_id)
+				row = self._cache.get(variable, str(value or self._runner_id))
 				if row is not None:
 					(_, v_value, v_type, _v_owner, _dirty) = row
 				else:
 					v_list = self._db.get_entries(
 						_USER_VARIABLE_TABLE,
-						columns=_USER_VARIABLE_COLUMNS
+						columns=_USER_VARIABLE_COLUMNS,
 						conditions={"name": db_name}
 					)
 					if len(v_list) == 0:
