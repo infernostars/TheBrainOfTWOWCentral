@@ -454,6 +454,8 @@ class BrainDiscordExtension(BxeStatefulExtension):
 		"""Create a button that can be pressed to rerun the tag with special arguments.
 		@parameter args a string containing the arguments to run the tag with; if it's the string "null", disables the button
 		@parameter label the label of the button
+		@optional color the button color/style (`gray`, `blue`, `green`, or `red`)
+		@optional locked whether the button is locked to only the current runner (`true`/`false`)
 		@returns nothing"""
 		self.buttons.append([str(a) for a in args])
 		return ""
