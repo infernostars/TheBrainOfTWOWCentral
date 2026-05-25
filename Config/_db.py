@@ -107,7 +107,7 @@ class Database:
 				))
 			
 			else: # If there are conditions, use WHERE and formatting to specify them.
-				sql_query += " WHERE " + ' AND '.join([f"{col} = %s" for col in conditions.keys()] + [f"{col} LIKE %s" for col in patterns.keys()])
+				sql_query += " WHERE " + ' AND '.join([f"{col} = %s" for col in conditions.keys()] + [f"{col} LIKE {ptrn}" for col, ptrn in patterns.items()])
 				
 				if limit is not None:
 					sql_query += f" LIMIT {limit} "
