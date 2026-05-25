@@ -22,10 +22,10 @@ def HELP(PREFIX):
 		displays information and the source code of a specific program. `tc/b++ create [program] [code]` can be used 
 		to save code into a specific program name, which can be edited by its creator with `tc/b++ edit [program] 
 		[newcode]` or deleted with `tc/b++ delete [program]`. You can check your existing programs with `tc/b++ tags`.
+		`tc/b++ docs` will show a list of all functions in B++, while `tc/b++ docs [function]` can be used for a more
+		detailed description of any function. 
 		Finally, `tc/b++ [program] (args)` allows you to run any saved program. Use debug mode with
-		`tc/b++ debug run [code]` or `tc/b++ debug [program] (args)` to print syntax warnings.^n^n
-		The full documentation for all B++ program functionality is displayed in this document:^n
-		https://docs.google.com/document/d/1pU2ezYE505sAPEmnSMNx9yfzD7FT4_KmICOkEUpMSA8/edit?usp=sharing
+		`tc/b++ debug run [code]` or `tc/b++ debug [program] (args)` to print syntax warnings.
 		""".replace("\n", "").replace("\t", "").replace("^n", "\n"),
 		"CATEGORY" : "Fun"
 	}
@@ -237,6 +237,7 @@ async def MAIN(message, args, level, perms, SERVER):
 		else:
 			embed = {"title": func, "description": "No documentation was found for this function.", "color": 0x93a5a6}
 		await message.channel.send(embed=discord.Embed.from_dict(embed))
+		return
 
 	if args[1].lower() == "create":
 		if level == 2:
