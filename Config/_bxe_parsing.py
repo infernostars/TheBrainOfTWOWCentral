@@ -672,7 +672,7 @@ class BrainUserExtension(BxeStatefulExtension):
 			case "var":
 				if value:
 					raise BxeRuntimeSyntaxException("USER VAR expected 2 parameters, but got 3")
-				if variable in self.user_variables.keys():
+				if db_name in self.user_variables.keys():
 					return self.user_variables[db_name]
 
 				row = self._cache.get(variable, self._runner_id)
@@ -808,7 +808,7 @@ def _run_bxe_program_unlocked(code, p_args, author, runner, channel):
 		for ext in result.stateful_extensions:
 			if isinstance(ext, BrainGlobalExtension):
 				ext.persist()
-			if isinstance(ext, BrainUserExtension):
+			elif isinstance(ext, BrainUserExtension):
 				ext.persist()
 			elif isinstance(ext, BrainDiscordExtension):
 				buttons = ext.buttons
