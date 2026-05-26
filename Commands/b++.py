@@ -63,8 +63,7 @@ BUTTON_LOCK_ALIASES = {
 def resolve_button_lock(button_lock):
 	if button_lock is None:
 		return False
-	lock_key = str(button_lock).strip().lower()
-	return lock_key in BUTTON_LOCK_ALIASES
+	return bool(button_lock)
 
 def format_debug_warnings(warnings):
 	if len(warnings) == 0:
